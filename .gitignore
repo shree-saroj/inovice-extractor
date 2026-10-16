@@ -75,3 +75,7 @@ Thumbs.db
 models/
 *.bin
 *.gguf
+
+!.vscode/
+.vscode/*
+!.vscode/launch.json

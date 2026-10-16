@@ -1,10 +1,8 @@
 import logging
 from typing import Optional
 
-import ollama
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.extractors.structure_extractor import StructureExtractor
@@ -17,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Invoice Data Extractor",
-    description="Two-stage LLM pipeline for invoice extraction",
+    description="Document text extraction and LLM structuring for invoices",
     version="1.0.0",
 )
 
@@ -30,8 +28,8 @@ app.add_middleware(
 )
 
 # Initialize extractors
-vision_extractor = VisionExtractor(model="llama3.2-vision")
-structure_extractor = StructureExtractor(model="llama3")
+vision_extractor = VisionExtractor()
+structure_extractor = StructureExtractor()
 
 # File size limit (50MB)
 MAX_FILE_SIZE = 50 * 1024 * 1024
@@ -51,11 +49,12 @@ async def extract_invoice(
 ):
     """
     Two-stage invoice extraction:
-    1. Vision LLM extracts all raw data from file
+    1. OCR/vision or document parsing extracts raw text
     2. Structure LLM formats data into JSON
 
     Supported formats: PNG, JPG, PDF, DOCX, XLSX
     """
+    raw_text = None
     try:
         # Validate file
         if not file.filename:
@@ -76,7 +75,7 @@ async def extract_invoice(
         logger.info(f"Processing file: {file.filename} ({len(content)} bytes)")
 
         # STAGE 1: Extract all raw data using Vision LLM
-        logger.info("Stage 1: Extracting raw data with Vision LLM...")
+        logger.info("Stage 1: Extracting raw document text (OCR/vision)...")
         raw_text = await vision_extractor.extract(content, file.filename)
 
         if not raw_text or len(raw_text.strip()) < 10:
@@ -103,23 +102,27 @@ async def extract_invoice(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Extraction failed: {str(e)}")
-        return ExtractionResponse(success=False, error=str(e))
+        logger.exception("Extraction failed")
+        return ExtractionResponse(success=False, error=str(e), stage1_output=raw_text if include_raw else None)
 
 
 @app.get("/health")
 async def health_check():
     """Check if services are running"""
     try:
-        # Test Ollama connection
-        ollama.chat(model="llama3", messages=[{"role": "user", "content": "test"}])
+        # Readiness checks should not trigger expensive inference.
+        models = await vision_extractor.client.list()
+        names = [(m.get("model") or m.get("name")) for m in models["models"]]
+        required = [vision_extractor.model, structure_extractor.model]
+        missing = [m for m in required if m not in names and f"{m}:latest" not in names]
         return {
-            "status": "healthy",
+            "status": "unhealthy" if missing else "healthy",
+            "missing_models": missing,
             "services": {
                 "api": "running",
                 "ollama": "connected",
-                "vision_model": "llama3.2-vision",
-                "structure_model": "llama3",
+                "vision_model": vision_extractor.model,
+                "structure_model": structure_extractor.model,
             },
         }
     except Exception as e:
@@ -130,10 +133,8 @@ async def health_check():
 async def list_models():
     """List available Ollama models"""
     try:
-        import ollama
-
-        models = ollama.list()
-        return {"models": [m["name"] for m in models["models"]]}
+        models = await vision_extractor.client.list()
+        return {"models": [(m.get("model") or m.get("name")) for m in models["models"]]}
     except Exception as e:
         return {"error": str(e)}
 

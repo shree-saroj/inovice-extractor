@@ -1,41 +1,38 @@
 #!/bin/bash
-
-echo "🚀 Running Invoice Extractor Locally..."
-
-# Check if Ollama is running
-if ! pgrep -x "ollama" > /dev/null; then
-    echo "📦 Starting Ollama service..."
-    ollama serve &
-    sleep 5
+set -euo pipefail
+cd "$(dirname "$0")"
+if [[ -f .env ]]; then
+    set -a
+    source .env
+    set +a
 fi
-
-# Check if models are available
-echo "🤖 Checking models..."
-if ! ollama list | grep -q "llama3"; then
-    echo "⬇️  Pulling llama3..."
-    ollama pull llama3
+export OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
+export VISION_MODEL="${VISION_MODEL:-llava}"
+export STRUCTURE_MODEL="${STRUCTURE_MODEL:-llama3}"
+if ! curl -fsS --max-time 5 "$OLLAMA_HOST/api/version"; then
+    echo "Start Ollama separately (ollama serve), or set OLLAMA_HOST to a running server."
+    exit 1
 fi
-
-if ! ollama list | grep -q "llama3.2-vision"; then
-    echo "⬇️  Pulling llama3.2-vision..."
-    ollama pull llama3.2-vision
-fi
-
-# Check if virtual environment exists
-if [ ! -d "venv" ]; then
-    echo "🐍 Creating virtual environment..."
+if [[ ! -x venv/bin/python ]]; then
     python3 -m venv venv
 fi
-
-# Activate virtual environment
-source venv/bin/activate
-
-# Install dependencies
-echo "📦 Installing dependencies..."
-pip install -r requirements.txt -q
-
-# Run the application
-echo "✅ Starting API server..."
-echo "📄 API: http://localhost:8000"
-echo "📚 Docs: http://localhost:8000/docs"
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+venv/bin/python -m pip install -r requirements.txt
+for model in "$VISION_MODEL" "$STRUCTURE_MODEL"; do
+    venv/bin/python - "$model" <<'PY'
+import ollama, sys
+client = ollama.Client()
+try:
+    client.show(sys.argv[1])
+except ollama.ResponseError as error:
+    if error.status_code != 404:
+        raise
+    print(f"Downloading missing model: {sys.argv[1]}", flush=True)
+    client.pull(sys.argv[1])
+PY
+done
+export API_PORT="${API_PORT:-8001}"
+echo "API docs: http://127.0.0.1:$API_PORT/docs"
+if [[ "${1:-}" == "--debug" ]]; then
+    exec venv/bin/python -Xfrozen_modules=off -m debugpy --listen 127.0.0.1:5678 -m uvicorn app.main:app --host 127.0.0.1 --port "$API_PORT"
+fi
+exec venv/bin/python -m uvicorn app.main:app --reload --host 127.0.0.1 --port "$API_PORT"

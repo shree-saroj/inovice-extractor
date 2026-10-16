@@ -1,4 +1,5 @@
 import json
+import os
 import re
 
 import ollama
@@ -9,8 +10,9 @@ from app.models import InvoiceData, InvoiceItem
 class StructureExtractor:
     """Stage 2: Structure raw text into proper JSON using Text LLM"""
 
-    def __init__(self, model: str = "llama3"):
-        self.model = model
+    def __init__(self, model: str | None = None):
+        self.model = model or os.getenv("STRUCTURE_MODEL", "llama3")
+        self.client = ollama.AsyncClient(host=os.getenv("OLLAMA_HOST", "http://localhost:11434"))
 
     async def structure(self, raw_text: str) -> InvoiceData:
         """Structure extracted text into InvoiceData model"""
@@ -66,12 +68,14 @@ IMPORTANT RULES:
 """
 
         try:
-            response = ollama.chat(
+            response = await self.client.chat(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
+                format="json",
                 options={
                     "temperature": 0.1,  # Low for consistency
                     "top_p": 0.9,
+                    "num_predict": 2048,
                 },
             )
 

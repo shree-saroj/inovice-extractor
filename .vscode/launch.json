@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug invoice API",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "args": [
+        "app.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8001"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": true,
+      "pythonArgs": [
+        "-Xfrozen_modules=off"
+      ]
+    },
+    {
+      "name": "Attach to local invoice API",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 5678
+      },
+      "justMyCode": true
+    }
+  ]
+}
