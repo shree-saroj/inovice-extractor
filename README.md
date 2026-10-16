@@ -203,14 +203,28 @@ uvicorn app.main:app --reload
 
 ### GPU Issues
 
-If you don't have an NVIDIA GPU, remove the GPU requirements from `compose.yaml`:
+GPU support is optional. `./setup.sh` tests whether Docker can expose an NVIDIA
+GPU and automatically includes `compose.gpu.yaml` when it can. Otherwise it
+starts the same services on CPU.
 
-```yaml
-services:
-  invoice-api:
-    # Remove the deploy section
-  ollama:
-    # Remove the deploy section
+Docker also needs NVIDIA Container Toolkit even when `nvidia-smi` works on the
+host. Verify the complete path before expecting Ollama to use the GPU:
+
+```bash
+nvidia-smi
+docker run --rm --gpus all --entrypoint nvidia-smi ollama/ollama:latest
+./setup.sh
+docker compose -f compose.yaml -f compose.gpu.yaml exec ollama ollama ps
+```
+
+In `ollama ps`, `PROCESSOR` should contain `GPU`. If Docker reports
+`failed to discover GPU vendor from CDI`, install/configure NVIDIA Container
+Toolkit for the Docker daemon, restart Docker, and rerun `./setup.sh`.
+
+To start the GPU configuration manually after Docker GPU access works:
+
+```bash
+docker compose -f compose.yaml -f compose.gpu.yaml up -d
 ```
 
 ### Model Loading
